@@ -1,216 +1,161 @@
 #!/usr/bin/env python3
 """
-Xbox 360 Controller Node for Seeway Robot
-Subscribes to /joy topic and publishes speed commands to /cmd_vel
+Xbox Controller Node - 订阅手柄输入并转发到底盘
+处理 Xbox 360 手柄控制
 """
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+import math
+
 from sensor_msgs.msg import Joy
 from geometry_msgs.msg import Twist
-import math
 
 
 class XboxControllerNode(Node):
-    """
-    Handles Xbox 360 controller input and publishes to /cmd_vel
-    Subscribes to: /joy
-    Publishes to: /cmd_vel
-    """
+    """Xbox 手柄控制节点"""
 
     def __init__(self):
         super().__init__('xbox_controller_node')
-
-        # QoS Profile
-        qos_profile = QoSProfile(
-            depth=10,
-            reliability=ReliabilityPolicy.BEST_EFFORT
-        )
-
-        # Publishers
-        self.cmd_vel_publisher = self.create_publisher(
-            Twist,
-            '/cmd_vel',
-            qos_profile
-        )
-
-        # Subscribers
-        self.joy_subscriber = self.create_subscription(
-            Joy,
-            '/joy',
-            self.joy_callback,
-            qos_profile
-        )
-
-        # Declare parameters
+        
+        # 参数
         self.declare_parameter('deadzone', 0.1)
         self.declare_parameter('max_linear_speed', 1.0)
         self.declare_parameter('max_angular_speed', 2.0)
         self.declare_parameter('turbo_multiplier', 1.5)
         self.declare_parameter('exponential_scale', 2.0)
         self.declare_parameter('cmd_vel_timeout', 0.5)
-
-        # Get parameters
+        
         self.deadzone = self.get_parameter('deadzone').value
         self.max_linear_speed = self.get_parameter('max_linear_speed').value
         self.max_angular_speed = self.get_parameter('max_angular_speed').value
         self.turbo_multiplier = self.get_parameter('turbo_multiplier').value
         self.exponential_scale = self.get_parameter('exponential_scale').value
-
-        # State
+        self.cmd_vel_timeout = self.get_parameter('cmd_vel_timeout').value
+        
+        # 状态
         self.enabled = False
         self.turbo_mode = False
-        self.last_cmd_time = None
-
-        # Timeout timer
-        self.create_timer(0.1, self.timeout_check)
-
-        self.get_logger().info(
-            f'Xbox Controller Node initialized\n'
-            f'  Deadzone: {self.deadzone}\n'
-            f'  Max linear speed: {self.max_linear_speed} m/s\n'
-            f'  Max angular speed: {self.max_angular_speed} rad/s\n'
-            f'  Turbo multiplier: {self.turbo_multiplier}x'
-        )
-
-    def apply_deadzone(self, value: float) -> float:
-        """
-        Apply deadzone to joystick input
         
-        Args:
-            value: Raw input value (-1.0 to 1.0)
-            
-        Returns:
-            Value with deadzone applied
-        """
+        # QoS 配置
+        qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=5
+        )
+        
+        # Subscriber - 手柄输入
+        self.joy_sub = self.create_subscription(
+            Joy, '/joy', self.joy_callback, qos
+        )
+        
+        # Publisher - 底盘速度命令
+        self.cmd_vel_pub = self.create_publisher(
+            Twist, '/cmd_vel', qos
+        )
+        
+        # 定时器 - 超时保护
+        self.last_joy_time = None
+        self.create_timer(0.1, self.timeout_check)
+        
+        self.get_logger().info('Xbox Controller Node initialized')
+    
+    def apply_deadzone(self, value: float) -> float:
+        """应用死区处理"""
         if abs(value) < self.deadzone:
             return 0.0
+        return value
+    
+    def apply_exponential_scale(self, value: float) -> float:
+        """应用指数缩放（平顺非线性控制）"""
+        sign = 1 if value >= 0 else -1
+        return sign * (abs(value) ** self.exponential_scale)
+    
+    def joy_callback(self, msg: Joy) -> None:
+        """手柄输入回调"""
+        self.last_joy_time = self.get_clock().now()
         
-        # Scale the value back to full range
-        if value > 0:
-            return (value - self.deadzone) / (1.0 - self.deadzone)
-        else:
-            return (value + self.deadzone) / (1.0 - self.deadzone)
-
-    def apply_exponential_scaling(self, value: float) -> float:
-        """
-        Apply exponential scaling for smoother control
-        
-        Args:
-            value: Input value (-1.0 to 1.0)
-            
-        Returns:
-            Exponentially scaled value
-        """
-        if value > 0:
-            return math.pow(value, self.exponential_scale)
-        elif value < 0:
-            return -math.pow(abs(value), self.exponential_scale)
-        else:
-            return 0.0
-
-    def joy_callback(self, msg: Joy):
-        """
-        Handle joystick input
-        Xbox 360 controller layout:
-        - axes[0]: Left stick X (left/right)
-        - axes[1]: Left stick Y (up/down)
-        - axes[4]: LT (left trigger)
-        - axes[5]: RT (right trigger)
-        - buttons[4]: LB (button 4)
-        - buttons[5]: RB (button 5)
-        
-        Args:
-            msg: Joy message from /joy topic
-        """
-        # Check if joystick has correct number of axes and buttons
-        if len(msg.axes) < 6 or len(msg.buttons) < 6:
-            self.get_logger().warn('Invalid Joy message structure')
-            return
-
-        # LB button (button 4) - toggle enable/disable
+        # 按钮映射（Xbox 360）
+        # LB (4) - 启用/禁用
         if msg.buttons[4] == 1:
             self.enabled = not self.enabled
             status = "ENABLED" if self.enabled else "DISABLED"
             self.get_logger().info(f'Controller {status}')
-            return
-
-        # If not enabled, don't process commands
-        if not self.enabled:
-            # Publish zero velocity
-            self.publish_zero_velocity()
-            return
-
-        # RB button (button 5) - turbo mode
-        self.turbo_mode = msg.buttons[5] == 1
-
-        # Left joystick Y axis -> linear velocity (forward/backward)
-        raw_linear = msg.axes[1]  # Y axis is inverted (up is negative)
-        linear = self.apply_deadzone(raw_linear)
-        linear = self.apply_exponential_scaling(linear)
         
-        # Left joystick X axis -> angular velocity (left/right turn)
-        raw_angular = msg.axes[0]
-        angular = self.apply_deadzone(raw_angular)
-        angular = self.apply_exponential_scaling(angular)
-
-        # Apply speed limits
-        linear = linear * self.max_linear_speed
-        angular = angular * self.max_angular_speed
-
-        # Apply turbo multiplier
-        if self.turbo_mode:
-            linear *= self.turbo_multiplier
-            angular *= self.turbo_multiplier
-
-        # Publish velocity command
-        twist = Twist()
-        twist.linear.x = linear
-        twist.linear.y = 0.0
-        twist.linear.z = 0.0
-        twist.angular.x = 0.0
-        twist.angular.y = 0.0
-        twist.angular.z = angular
-
-        self.cmd_vel_publisher.publish(twist)
-        self.last_cmd_time = self.get_clock().now()
-
-    def publish_zero_velocity(self):
-        """Publish zero velocity command"""
-        twist = Twist()
-        twist.linear.x = 0.0
-        twist.linear.y = 0.0
-        twist.linear.z = 0.0
-        twist.angular.x = 0.0
-        twist.angular.y = 0.0
-        twist.angular.z = 0.0
-        self.cmd_vel_publisher.publish(twist)
-
-    def timeout_check(self):
-        """
-        Check for command timeout and publish zero velocity if needed
-        """
-        if self.last_cmd_time is not None:
-            time_diff = (self.get_clock().now() - self.last_cmd_time).nanoseconds / 1e9
-            if time_diff > 0.5:  # 500ms timeout
-                self.get_logger().warn('Command timeout, publishing zero velocity')
-                self.publish_zero_velocity()
-                self.last_cmd_time = None
+        # RB (5) - 涡轮加速
+        self.turbo_mode = (msg.buttons[5] == 1)
+        
+        if not self.enabled:
+            # 发送零速度
+            self.send_cmd_vel(0.0, 0.0)
+            return
+        
+        # 摇杆映射
+        # 左摇杆 Y 轴 (1) - 前进/后退
+        # 左摇杆 X 轴 (0) - 左转/右转
+        # DPAD Y (7) - 精细前后
+        # DPAD X (6) - 精细左右
+        
+        left_y = self.apply_deadzone(msg.axes[1])  # 前进/后退
+        left_x = self.apply_deadzone(msg.axes[0])  # 左右转
+        dpad_y = msg.axes[7]  # 精细前后
+        dpad_x = msg.axes[6]  # 精细左右
+        
+        # 合并摇杆和 DPAD 输入
+        linear_x = left_y + dpad_y * 0.3
+        angular_z = left_x + dpad_x * 0.3
+        
+        # 应用指数缩放
+        linear_x = self.apply_exponential_scale(linear_x)
+        angular_z = self.apply_exponential_scale(angular_z)
+        
+        # 应用速度限制
+        linear_x = max(-1.0, min(1.0, linear_x))
+        angular_z = max(-1.0, min(1.0, angular_z))
+        
+        # 应用涡轮加速
+        speed_multiplier = self.turbo_multiplier if self.turbo_mode else 1.0
+        
+        # 计算最终速度
+        final_linear = linear_x * self.max_linear_speed * speed_multiplier
+        final_angular = angular_z * self.max_angular_speed * speed_multiplier
+        
+        # 发送命令
+        self.send_cmd_vel(final_linear, final_angular)
+    
+    def send_cmd_vel(self, linear_x: float, angular_z: float) -> None:
+        """发送底盘速度命令"""
+        msg = Twist()
+        msg.linear.x = linear_x
+        msg.linear.y = 0.0
+        msg.linear.z = 0.0
+        msg.angular.x = 0.0
+        msg.angular.y = 0.0
+        msg.angular.z = angular_z
+        
+        self.cmd_vel_pub.publish(msg)
+    
+    def timeout_check(self) -> None:
+        """超时保护检查"""
+        if self.last_joy_time is None:
+            return
+        
+        now = self.get_clock().now()
+        time_diff = (now - self.last_joy_time).nanoseconds / 1e9
+        
+        if time_diff > self.cmd_vel_timeout and self.enabled:
+            self.get_logger().warn('Joystick timeout - stopping robot')
+            self.send_cmd_vel(0.0, 0.0)
+            self.enabled = False
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = XboxControllerNode()
-    
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.publish_zero_velocity()  # Ensure robot stops
-        node.destroy_node()
-        rclpy.shutdown()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
 
 if __name__ == '__main__':

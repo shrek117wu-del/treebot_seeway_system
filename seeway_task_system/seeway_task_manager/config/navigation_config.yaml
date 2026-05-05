@@ -1,0 +1,60 @@
+/**
+ * Navigation Configuration
+ * Nav2导航栈参数配置
+ */
+
+nav2_client_node:
+  ros__parameters:
+    # 到达目标点的距离阈值（米）
+    # 当机器人距离目标点小于此值时，认为已到达
+    goal_threshold: 0.2
+    
+    # 规划超时时间（秒）
+    # 如果规划时间超过此值，任务失败
+    planning_timeout: 60.0
+    
+    # 执行超时时间（秒）
+    # 如果执行时间超过此值，任务失败
+    execution_timeout: 300.0
+
+task_scheduler_node:
+  ros__parameters:
+    # 清洁位置配置
+    # 格式: location_name: [x, y, theta, duration]
+    
+    cleaning_locations:
+      toilet:
+        x: 1.0
+        y: 1.0
+        theta: 0.0
+        duration: 180  # 秒
+      
+      sink:
+        x: 2.0
+        y: 2.0
+        theta: 0.0
+        duration: 120
+      
+      urinal:
+        x: 3.0
+        y: 1.0
+        theta: 0.0
+        duration: 90
+      
+      floor:
+        x: 1.5
+        y: 1.5
+        theta: 0.0
+        duration: 240
+      
+      wall:
+        x: 2.5
+        y: 2.5
+        theta: 0.0
+        duration: 150
+      
+      base:
+        x: 0.0
+        y: 0.0
+        theta: 0.0
+        duration: 0

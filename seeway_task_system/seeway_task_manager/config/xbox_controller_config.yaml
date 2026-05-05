@@ -1,0 +1,48 @@
+/**
+ * Xbox360 Controller Configuration
+ * 映射Xbox 360手柄按键和摇杆到机器人控制命令
+ */
+
+xbox_controller_node:
+  ros__parameters:
+    # 摇杆死区（0-1，防止摇杆漂移）
+    deadzone: 0.1
+    
+    # 最大线速度（m/s）
+    max_linear_speed: 1.0
+    
+    # 最大角速度（rad/s）
+    max_angular_speed: 2.0
+    
+    # 涡轮加速倍数（RB按钮按下时）
+    turbo_multiplier: 1.5
+    
+    # 指数缩放因子（平顺非线性控制）
+    # 值越大，中间段控制越线性，边界段越敏感
+    exponential_scale: 2.0
+    
+    # 命令超时时间（秒，防止手柄断连后机器人继续运动）
+    cmd_vel_timeout: 0.5
+
+/**
+ * 手柄按键映射
+ * 
+ * 左摇杆：
+ *   - Y轴 (axes[1]): 前进/后退 -> linear_x
+ *   - X轴 (axes[0]): 左转/右转 -> angular_z
+ * 
+ * 右摇杆：
+ *   - 保留
+ * 
+ * 按键：
+ *   - LB (buttons[4]): 启用/禁用控制
+ *   - RB (buttons[5]): 涡轮加速
+ * 
+ * DPAD：
+ *   - X (axes[6]): 精细左右转向
+ *   - Y (axes[7]): 精细前后移动
+ * 
+ * 触发器：
+ *   - LT (axes[2]): 保留
+ *   - RT (axes[5]): 保留
+ */

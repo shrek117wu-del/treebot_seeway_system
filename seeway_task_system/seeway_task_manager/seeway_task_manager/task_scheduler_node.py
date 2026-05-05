@@ -1,406 +1,310 @@
 #!/usr/bin/env python3
 """
-Task Scheduler Node for Seeway Robot
-Manages task queue and coordinates navigation and execution
+Task Scheduler Node - 核心协调器
+管理任务队列、状态转移和导航调度
 """
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+import json
+import time
+from collections import deque
+from enum import Enum
+
 from seeway_task_msgs.msg import TaskCommand, TaskStatus
 from geometry_msgs.msg import PoseStamped
-import json
-from collections import deque
-from datetime import datetime
-import math
+from nav2_msgs.action import NavigateToPose
+from rclpy.action import ActionClient
+
+
+class TaskState(Enum):
+    """任务状态枚举"""
+    WAITING = "WAITING"
+    NAVIGATING = "NAVIGATING_TO_TARGET"
+    EXECUTING = "EXECUTING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class CleaningLocation:
+    """清洁位置信息"""
+    def __init__(self, name, x, y, theta=0.0, duration=120):
+        self.name = name
+        self.x = x
+        self.y = y
+        self.theta = theta
+        self.duration = duration
 
 
 class TaskSchedulerNode(Node):
-    """
-    Core task scheduler that manages task queue and coordinates
-    navigation and execution
-    
-    Task state machine:
-    WAITING -> NAVIGATING_TO_TARGET -> EXECUTING -> COMPLETED
-                                                  \-> FAILED
-    """
+    """任务调度器节点 - 核心协调器"""
 
     def __init__(self):
         super().__init__('task_scheduler_node')
-
-        # Callback group
-        self.callback_group = ReentrantCallbackGroup()
-
-        # QoS Profile
-        qos_profile = QoSProfile(
-            depth=10,
-            reliability=ReliabilityPolicy.RELIABLE
+        
+        # 参数
+        self.declare_parameter('goal_threshold', 0.2)
+        self.declare_parameter('execution_timeout', 300.0)
+        
+        self.goal_threshold = self.get_parameter('goal_threshold').value
+        self.execution_timeout = self.get_parameter('execution_timeout').value
+        
+        # QoS 配置
+        qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
         )
-
-        # Publishers
-        self.status_publisher = self.create_publisher(
-            TaskStatus,
-            '/task_status_feedback',
-            qos_profile
+        
+        # Publisher
+        self.status_pub = self.create_publisher(
+            TaskStatus, '/task_status_feedback', qos
         )
-
-        # Subscribers
-        self.task_subscriber = self.create_subscription(
-            TaskCommand,
-            '/sys_task_cmd',
-            self.task_callback,
-            qos_profile,
-            callback_group=self.callback_group
+        
+        # Subscriber - 任务命令
+        self.task_sub = self.create_subscription(
+            TaskCommand, '/sys_task_cmd', self.task_cmd_callback, qos
         )
-
-        # Task queue and state
+        
+        # Nav2 Action 客户端
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        
+        # 任务队列和状态
         self.task_queue = deque()
         self.current_task = None
-        self.task_states = {}  # {task_id: state}
+        self.task_counter = 0
         
-        # Predefined cleaning locations (x, y, theta, duration)
+        # 预定义清洁位置
         self.cleaning_locations = {
-            'toilet': {
-                'start_point': (0.0, 0.0),
-                'target_point': (1.0, 1.0),
-                'theta': 0.0,
-                'duration': 120  # 2 minutes
-            },
-            'sink': {
-                'start_point': (0.0, 0.0),
-                'target_point': (2.0, 2.0),
-                'theta': 0.0,
-                'duration': 90  # 1.5 minutes
-            },
-            'urinal': {
-                'start_point': (0.0, 0.0),
-                'target_point': (3.0, 1.0),
-                'theta': 0.0,
-                'duration': 60  # 1 minute
-            },
-            'floor': {
-                'start_point': (0.0, 0.0),
-                'target_point': (1.5, 1.5),
-                'theta': 0.0,
-                'duration': 180  # 3 minutes
-            },
-            'wall': {
-                'start_point': (0.0, 0.0),
-                'target_point': (2.5, 2.5),
-                'theta': 0.0,
-                'duration': 90  # 1.5 minutes
-            }
+            'toilet': CleaningLocation('toilet', 1.0, 1.0, 0.0, 180),
+            'sink': CleaningLocation('sink', 2.0, 2.0, 0.0, 120),
+            'urinal': CleaningLocation('urinal', 3.0, 1.0, 0.0, 90),
+            'floor': CleaningLocation('floor', 1.5, 1.5, 0.0, 240),
+            'wall': CleaningLocation('wall', 2.5, 2.5, 0.0, 150),
+            'base': CleaningLocation('base', 0.0, 0.0, 0.0, 0),
         }
-
-        # Task statistics
-        self.task_stats = {
-            'total_tasks': 0,
-            'completed_tasks': 0,
-            'failed_tasks': 0,
-            'start_time': datetime.now()
-        }
-
-        # Declare parameters
-        self.declare_parameter('state_check_period', 0.1)  # 100ms
-        self.declare_parameter('goal_threshold', 0.2)
-        self.declare_parameter('nav_timeout', 60.0)
-
-        # Get parameters
-        state_check_period = self.get_parameter('state_check_period').value
-        self.goal_threshold = self.get_parameter('goal_threshold').value
-        self.nav_timeout = self.get_parameter('nav_timeout').value
-
-        # State check timer
-        self.create_timer(
-            state_check_period,
-            self.state_checker,
-            callback_group=self.callback_group
-        )
-
-        # Task state
-        self.task_start_time = None
-        self.nav_start_time = None
-        self.task_current_progress = 0
-
-        self.get_logger().info(
-            f'Task Scheduler Node initialized\n'
-            f'  Cleaning locations: {list(self.cleaning_locations.keys())}\n'
-            f'  State check period: {state_check_period}s\n'
-            f'  Goal threshold: {self.goal_threshold}m\n'
-            f'  Navigation timeout: {self.nav_timeout}s'
-        )
-
-    def task_callback(self, msg: TaskCommand):
-        """
-        Handle incoming task commands
         
-        Args:
-            msg: TaskCommand message
-        """
-        # Parse task parameters
-        try:
-            if msg.param and msg.param != "none":
-                param = json.loads(msg.param)
-            else:
-                param = {}
-        except json.JSONDecodeError:
-            self.get_logger().error(f"Failed to parse task param: {msg.param}")
-            param = {}
-
-        # Create task object
+        # 定时器
+        self.create_timer(0.1, self.task_state_checker)
+        
+        self.get_logger().info('Task Scheduler Node initialized')
+    
+    def task_cmd_callback(self, msg: TaskCommand) -> None:
+        """任务命令回调"""
+        self.task_counter += 1
+        task_id = self.task_counter
+        
+        # 创建任务对象
         task = {
-            'task_id': f"{len(self.task_queue):04d}",
+            'id': task_id,
             'own': msg.own,
-            'task_name': msg.task,
-            'param': param,
-            'status': 'WAITING',
+            'task': msg.task,
+            'param': json.loads(msg.param) if msg.param else {},
+            'state': TaskState.WAITING,
             'progress': 0,
-            'created_at': datetime.now(),
-            'location': param.get('location', 'unknown')
+            'timestamp': self.get_clock().now(),
+            'nav_goal_handle': None,
+            'start_execution_time': None,
         }
-
-        # Add to queue
-        self.task_queue.append(task)
-        self.task_stats['total_tasks'] += 1
-
-        self.get_logger().info(
-            f"Task added to queue: {task['task_name']} "
-            f"at location {task['location']} (Queue size: {len(self.task_queue)})"
-        )
         
-        # Publish status
-        self.publish_task_status(task, 'WAITING', 0, 'Task added to queue')
-
-    def state_checker(self):
-        """
-        Periodic state checker - main state machine logic
-        Runs every 100ms
-        """
-        # If no current task, try to start next one
+        self.task_queue.append(task)
+        self.get_logger().info(
+            f'Task enqueued: id={task_id}, task={msg.task}, '
+            f'queue_size={len(self.task_queue)}'
+        )
+    
+    def task_state_checker(self) -> None:
+        """周期性检查任务状态"""
+        # 如果没有当前任务，启动下一个
         if self.current_task is None:
             if len(self.task_queue) > 0:
                 self.start_next_task()
             return
-
-        # Handle current task based on its status
-        current_status = self.current_task['status']
-
-        if current_status == 'WAITING':
-            # Move to navigation
-            self.current_task['status'] = 'NAVIGATING_TO_TARGET'
-            self.nav_start_time = datetime.now()
-            self.get_logger().info(
-                f"Task {self.current_task['task_id']}: "
-                f"Starting navigation to {self.current_task['location']}"
-            )
-            self.publish_task_status(
-                self.current_task,
-                'NAVIGATING_TO_TARGET',
-                10,
-                f"Navigating to {self.current_task['location']}"
-            )
-
-        elif current_status == 'NAVIGATING_TO_TARGET':
-            # Check if navigation completed
-            if self.check_navigation_completed():
-                self.current_task['status'] = 'EXECUTING'
-                self.task_start_time = datetime.now()
-                self.task_current_progress = 0
-                self.get_logger().info(
-                    f"Task {self.current_task['task_id']}: "
-                    f"Navigation complete, starting execution"
-                )
-                self.publish_task_status(
-                    self.current_task,
-                    'EXECUTING',
-                    30,
-                    f"Executing cleaning task at {self.current_task['location']}"
-                )
-            else:
-                # Check navigation timeout
-                nav_elapsed = (datetime.now() - self.nav_start_time).total_seconds()
-                if nav_elapsed > self.nav_timeout:
-                    self.current_task['status'] = 'FAILED'
-                    self.get_logger().error(
-                        f"Task {self.current_task['task_id']}: "
-                        f"Navigation timeout after {nav_elapsed:.1f}s"
-                    )
-                    self.publish_task_status(
-                        self.current_task,
-                        'FAILED',
-                        0,
-                        f"Navigation timeout"
-                    )
-                    self.complete_current_task(False)
-                else:
-                    # Update progress based on time
-                    progress = int((nav_elapsed / self.nav_timeout) * 30) + 10
-                    self.current_task['progress'] = min(progress, 50)
-                    self.publish_task_status(
-                        self.current_task,
-                        'NAVIGATING_TO_TARGET',
-                        self.current_task['progress'],
-                        f"Navigating to {self.current_task['location']}..."
-                    )
-
-        elif current_status == 'EXECUTING':
-            # Check if execution completed
-            location = self.current_task['location']
-            if location in self.cleaning_locations:
-                duration = self.cleaning_locations[location]['duration']
-            else:
-                duration = 120  # Default 2 minutes
-
-            elapsed = (datetime.now() - self.task_start_time).total_seconds()
-            progress = int((elapsed / duration) * 70) + 30  # Progress from 30-100%
-
-            if elapsed > duration:
-                self.current_task['status'] = 'COMPLETED'
-                self.current_task['progress'] = 100
-                self.get_logger().info(
-                    f"Task {self.current_task['task_id']}: "
-                    f"Execution completed in {elapsed:.1f}s"
-                )
-                self.publish_task_status(
-                    self.current_task,
-                    'COMPLETED',
-                    100,
-                    f"Task completed successfully"
-                )
-                self.complete_current_task(True)
-            else:
-                # Update progress
-                self.current_task['progress'] = min(progress, 99)
-                self.publish_task_status(
-                    self.current_task,
-                    'EXECUTING',
-                    self.current_task['progress'],
-                    f"Executing... ({elapsed:.1f}/{duration}s)"
-                )
-
-    def start_next_task(self):
-        """
-        Start the next task in the queue
-        """
+        
+        # 根据任务状态进行处理
+        task = self.current_task
+        
+        if task['state'] == TaskState.NAVIGATING:
+            self.check_navigation_status(task)
+        
+        elif task['state'] == TaskState.EXECUTING:
+            self.check_execution_status(task)
+    
+    def start_next_task(self) -> None:
+        """启动下一个任务"""
         if len(self.task_queue) == 0:
             return
-
-        self.current_task = self.task_queue.popleft()
-        self.current_task['status'] = 'WAITING'
-        self.current_task['progress'] = 5
-
-        self.get_logger().info(
-            f"Starting task: {self.current_task['task_name']} "
-            f"(ID: {self.current_task['task_id']})"
-        )
-        self.publish_task_status(
-            self.current_task,
-            'WAITING',
-            5,
-            'Task processing started'
-        )
-
-    def check_navigation_completed(self) -> bool:
-        """
-        Check if navigation to target has completed
-        This is a simplified check - in real implementation,
-        subscribe to actual robot pose feedback
         
-        Returns:
-            True if navigation completed
-        """
-        # Simplified simulation: Check timeout
-        if self.nav_start_time is None:
-            return False
-
-        nav_elapsed = (datetime.now() - self.nav_start_time).total_seconds()
+        task = self.task_queue.popleft()
+        self.current_task = task
         
-        # Simulated navigation takes 5-15 seconds depending on location
-        location = self.current_task['location']
-        nav_time = 10.0 if location in self.cleaning_locations else 15.0
+        self.get_logger().info(f'Starting task: id={task["id"]}, task={task["task"]}')
         
-        return nav_elapsed > nav_time
-
-    def complete_current_task(self, success: bool):
-        """
-        Mark current task as completed
-        
-        Args:
-            success: True if task completed successfully
-        """
-        if success:
-            self.task_stats['completed_tasks'] += 1
+        # 获取清洁位置
+        location_name = task['param'].get('location', 'floor')
+        if location_name in self.cleaning_locations:
+            location = self.cleaning_locations[location_name]
+            
+            # 更新任务状态为导航中
+            task['state'] = TaskState.NAVIGATING
+            task['progress'] = 10
+            self.publish_task_status(task)
+            
+            # 发送导航目标
+            self.send_navigation_goal(task, location)
         else:
-            self.task_stats['failed_tasks'] += 1
-
+            self.get_logger().error(f'Unknown location: {location_name}')
+            task['state'] = TaskState.FAILED
+            self.publish_task_status(task)
+            self.current_task = None
+    
+    def send_navigation_goal(self, task, location: CleaningLocation) -> None:
+        """发送导航目标"""
+        if not self.nav_client.server_is_ready():
+            self.get_logger().warn('Navigation server not ready')
+            return
+        
+        goal_msg = NavigateToPose.Goal()
+        goal_msg.pose = self.create_pose_from_xy(
+            location.x, location.y, location.theta
+        )
+        goal_msg.behavior_tree = ''
+        
         self.get_logger().info(
-            f"Task {self.current_task['task_id']} completed. "
-            f"Stats: {self.task_stats['completed_tasks']} completed, "
-            f"{self.task_stats['failed_tasks']} failed out of "
-            f"{self.task_stats['total_tasks']} total"
+            f'Sending navigation goal: x={location.x}, y={location.y}'
         )
         
-        self.current_task = None
-        self.task_start_time = None
-        self.nav_start_time = None
-
-    def publish_task_status(self, task: dict, status: str, progress: int, message: str):
-        """
-        Publish task status feedback
+        future = self.nav_client.send_goal_async(goal_msg)
+        future.add_done_callback(
+            lambda f, t=task: self.nav_goal_response_callback(f, t)
+        )
+    
+    def nav_goal_response_callback(self, future, task) -> None:
+        """导航目标响应"""
+        goal_handle = future.result()
         
-        Args:
-            task: Task dictionary
-            status: Task status string
-            progress: Progress percentage (0-100)
-            message: Status message
-        """
+        if not goal_handle.accepted:
+            self.get_logger().error('Navigation goal rejected')
+            task['state'] = TaskState.FAILED
+            self.publish_task_status(task)
+            self.current_task = None
+            return
+        
+        task['nav_goal_handle'] = goal_handle
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(
+            lambda f, t=task: self.nav_goal_result_callback(f, t)
+        )
+    
+    def nav_goal_result_callback(self, future, task) -> None:
+        """导航目标结果"""
+        status = future.result().status
+        
+        from action_msgs.msg import GoalStatus
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            self.get_logger().info('Navigation succeeded')
+            
+            # 更新任务状态为执行中
+            task['state'] = TaskState.EXECUTING
+            task['progress'] = 50
+            task['start_execution_time'] = self.get_clock().now()
+            self.publish_task_status(task)
+        else:
+            self.get_logger().error(f'Navigation failed with status: {status}')
+            task['state'] = TaskState.FAILED
+            self.publish_task_status(task)
+            self.current_task = None
+    
+    def check_navigation_status(self, task) -> None:
+        """检查导航状态"""
+        # 这里可以检查 Nav2 的反馈
+        pass
+    
+    def check_execution_status(self, task) -> None:
+        """检查执行状态"""
+        if task['start_execution_time'] is None:
+            return
+        
+        elapsed = (self.get_clock().now() - task['start_execution_time']).nanoseconds / 1e9
+        
+        # 获取清洁位置的持续时间
+        location_name = task['param'].get('location', 'floor')
+        location = self.cleaning_locations.get(location_name)
+        
+        if location and elapsed >= location.duration:
+            self.get_logger().info(
+                f'Task execution completed: id={task["id"]}, '
+                f'duration={elapsed:.1f}s'
+            )
+            
+            task['state'] = TaskState.COMPLETED
+            task['progress'] = 100
+            self.publish_task_status(task)
+            self.current_task = None
+    
+    def publish_task_status(self, task) -> None:
+        """发布任务状态"""
         msg = TaskStatus()
-        msg.task_id = task['task_id']
-        msg.status = status
-        msg.progress = progress
-        msg.message = message
-
-        self.status_publisher.publish(msg)
-
-    def get_task_statistics(self) -> dict:
-        """
-        Get task execution statistics
+        msg.task_id = task['id']
+        msg.own = task['own']
+        msg.task = task['task']
+        msg.param = task['param'].__repr__()
+        msg.status = task['state'].value
+        msg.progress = task['progress']
+        msg.timestamp = int(time.time())
         
-        Returns:
-            Dictionary with task statistics
-        """
-        uptime = (datetime.now() - self.task_stats['start_time']).total_seconds()
+        self.status_pub.publish(msg)
+        self.get_logger().info(
+            f'Task status published: id={task["id"]}, '
+            f'status={task["state"].value}, progress={task["progress"]}%'
+        )
+    
+    def create_pose_from_xy(self, x: float, y: float, theta: float = 0.0) -> PoseStamped:
+        """从 XY 坐标创建姿态"""
+        import math
+        
+        pose = PoseStamped()
+        pose.header.frame_id = 'map'
+        pose.header.stamp = self.get_clock().now().to_msg()
+        
+        pose.pose.position.x = x
+        pose.pose.position.y = y
+        pose.pose.position.z = 0.0
+        
+        # 欧拉角转四元数
+        qx = math.sin(0/2) * math.cos(0/2) * math.cos(theta/2) - \
+             math.cos(0/2) * math.sin(0/2) * math.sin(theta/2)
+        qy = math.cos(0/2) * math.sin(0/2) * math.cos(theta/2) + \
+             math.sin(0/2) * math.cos(0/2) * math.sin(theta/2)
+        qz = math.cos(0/2) * math.cos(0/2) * math.sin(theta/2) - \
+             math.sin(0/2) * math.sin(0/2) * math.cos(theta/2)
+        qw = math.cos(0/2) * math.cos(0/2) * math.cos(theta/2) + \
+             math.sin(0/2) * math.sin(0/2) * math.sin(theta/2)
+        
+        pose.pose.orientation.x = qx
+        pose.pose.orientation.y = qy
+        pose.pose.orientation.z = qz
+        pose.pose.orientation.w = qw
+        
+        return pose
+    
+    def get_task_statistics(self) -> dict:
+        """获取任务统计信息"""
         return {
-            'total_tasks': self.task_stats['total_tasks'],
-            'completed_tasks': self.task_stats['completed_tasks'],
-            'failed_tasks': self.task_stats['failed_tasks'],
             'queue_size': len(self.task_queue),
-            'uptime_seconds': uptime,
-            'tasks_per_hour': self.task_stats['completed_tasks'] / (uptime / 3600.0) if uptime > 0 else 0
+            'current_task': self.current_task['id'] if self.current_task else None,
+            'locations_count': len(self.cleaning_locations),
         }
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = TaskSchedulerNode()
-    
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        stats = node.get_task_statistics()
-        node.get_logger().info(
-            f"Final statistics:\n"
-            f"  Total tasks: {stats['total_tasks']}\n"
-            f"  Completed: {stats['completed_tasks']}\n"
-            f"  Failed: {stats['failed_tasks']}\n"
-            f"  Uptime: {stats['uptime_seconds']:.1f}s\n"
-            f"  Throughput: {stats['tasks_per_hour']:.2f} tasks/hour"
-        )
-        node.destroy_node()
-        rclpy.shutdown()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
 
 if __name__ == '__main__':
