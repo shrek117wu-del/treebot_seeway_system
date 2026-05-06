@@ -1,0 +1,29 @@
+chassis_driver_node:
+  ros__parameters:
+    # ── Communication type ──────────────────────────────────────
+    # Choose 'uart' (serial) or 'can' (SocketCAN)
+    comm_type: "uart"
+
+    # ── UART / Serial parameters ────────────────────────────────
+    # Used when comm_type == 'uart'
+    uart_port: "/dev/ttyUSB0"    # Serial device path
+    uart_baudrate: 115200         # Baud rate (chassis default: 115200)
+
+    # ── CAN bus parameters ──────────────────────────────────────
+    # Used when comm_type == 'can'
+    # Before use: sudo ip link set can0 up type can bitrate 500000
+    can_channel: "can0"          # SocketCAN interface name
+    can_bitrate: 500000          # CAN bus bit rate (chassis default: 500 kbps)
+    can_id: 1                    # CAN arbitration ID for motion commands (0x001)
+
+    # ── Speed limits ────────────────────────────────────────────
+    # Protocol hard limits – do not exceed
+    max_linear_speed_mms: 2000   # Maximum linear speed in mm/s
+    max_angular_speed_mrad: 6870 # Maximum angular speed in 0.001 rad/s
+
+    # ── Safety / timing ─────────────────────────────────────────
+    # Seconds without /cmd_vel before the driver sends a zero-velocity command
+    cmd_vel_timeout: 0.5
+
+    # Control loop update rate (Hz).  The chassis supports at least 50 Hz.
+    publish_rate_hz: 50.0
