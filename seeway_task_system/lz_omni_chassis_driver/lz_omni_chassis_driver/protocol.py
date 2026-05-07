@@ -68,7 +68,10 @@ def build_version_query_frame() -> bytes:
 
 @dataclass
 class BatteryInfo:
-    """Battery telemetry parsed from CMD 0x69 payload."""
+    """Battery telemetry parsed from CMD 0x69 payload.
+
+    ``soc_percent`` is normalized to the protocol's percentage range [0, 100].
+    """
 
     voltage_v: float
     current_a: float

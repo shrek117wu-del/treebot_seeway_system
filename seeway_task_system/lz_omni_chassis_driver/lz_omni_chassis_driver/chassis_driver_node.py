@@ -48,6 +48,11 @@ class ChassisDriverNode(Node):
         self._cmd_vel_timeout = float(self.get_parameter('cmd_vel_timeout').value)
         publish_rate = float(self.get_parameter('publish_rate_hz').value)
         self._feedback_publish_rate_hz = float(self.get_parameter('feedback_publish_rate_hz').value)
+        if self._feedback_publish_rate_hz <= 0.0:
+            self.get_logger().warn(
+                f'feedback_publish_rate_hz={self._feedback_publish_rate_hz} is invalid; using 10.0 Hz'
+            )
+            self._feedback_publish_rate_hz = 10.0
         self._motor_control_topic = str(self.get_parameter('motor_control_topic').value)
         self._query_version_on_start = bool(self.get_parameter('query_version_on_start').value)
 
@@ -84,7 +89,7 @@ class ChassisDriverNode(Node):
         self._fw_pub = self.create_publisher(String, '/firmware_version', qos)
 
         self._control_timer = self.create_timer(1.0 / publish_rate, self._control_loop)
-        feedback_period = 1.0 / max(self._feedback_publish_rate_hz, 1e-6)
+        feedback_period = 1.0 / self._feedback_publish_rate_hz
         self._feedback_timer = self.create_timer(feedback_period, self._publish_feedback)
 
         self._version_query_timer = None
@@ -205,7 +210,7 @@ class ChassisDriverNode(Node):
             battery_msg.header.stamp = self._latest_battery_stamp or now
             battery_msg.voltage = float(self._latest_battery.voltage_v)
             battery_msg.current = float(self._latest_battery.current_a)
-            battery_msg.percentage = float(self._latest_battery.soc_percent) / 100.0
+            battery_msg.percentage = max(0.0, min(1.0, float(self._latest_battery.soc_percent) / 100.0))
             battery_msg.present = self._latest_battery.status != 0
             self._battery_pub.publish(battery_msg)
 

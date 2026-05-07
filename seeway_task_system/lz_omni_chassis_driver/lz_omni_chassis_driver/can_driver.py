@@ -26,6 +26,12 @@ DEFAULT_RX_CAN_IDS: Dict[int, str] = {
     0x6F: 'aux',
     0x11: 'version',
 }
+RX_PAYLOAD_LENGTHS: Dict[str, int] = {
+    'battery': 6,
+    'chassis': 14,
+    'aux': 8,
+    'version': 4,
+}
 
 
 def build_can_motion_data(linear_x_mms: int, linear_y_mms: int, angular_mrad_s: int) -> bytes:
@@ -120,8 +126,9 @@ class CanDriver:
     def send_motor_control(self, m1: int, m2: int, m3: int, m4: int) -> bool:
         """Send CMD 0x01 motor control command.
 
-        Note: CAN2.0 payload is limited to 6 bytes after CMD; this command needs 8 bytes.
-        The method logs an error and returns False when frame size exceeds CAN2.0 limit.
+        Note: CAN2.0 has 8 total data bytes. With 1 byte CMD and 1 byte XOR,
+        only 6 bytes remain for payload while this command needs 8 bytes.
+        The method logs an error and returns ``False`` in this case.
         """
         payload = struct.pack(
             '>hhhh',
@@ -213,13 +220,7 @@ class CanDriver:
                         )
                         continue
 
-                expected_lengths = {
-                    'battery': 6,
-                    'chassis': 14,
-                    'aux': 8,
-                    'version': 4,
-                }
-                data_len = expected_lengths.get(rx_type)
+                data_len = RX_PAYLOAD_LENGTHS.get(rx_type)
                 if data_len is None:
                     self._logger.error(f'CAN RX unsupported type={rx_type}')
                     continue
