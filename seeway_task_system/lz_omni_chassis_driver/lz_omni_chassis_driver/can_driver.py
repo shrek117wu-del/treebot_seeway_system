@@ -32,6 +32,8 @@ RX_PAYLOAD_LENGTHS: Dict[str, int] = {
     'aux': 8,
     'version': 4,
 }
+CHASSIS_SHORT_LEN = 6
+CHASSIS_FULL_LEN = 14
 
 
 def build_can_motion_data(linear_x_mms: int, linear_y_mms: int, angular_mrad_s: int) -> bytes:
@@ -226,8 +228,8 @@ class CanDriver:
                     continue
                 available_len = max(0, len(data_bytes) - 2)
                 data_len = min(expected_len, available_len)
-                if rx_type == 'chassis' and data_len >= 6:
-                    data_len = 6 if data_len < 14 else 14
+                if rx_type == 'chassis' and data_len >= CHASSIS_SHORT_LEN:
+                    data_len = CHASSIS_SHORT_LEN if data_len < CHASSIS_FULL_LEN else CHASSIS_FULL_LEN
                 payload = data_bytes[1:1 + data_len]
                 self._dispatch(rx_type, payload)
             except Exception as exc:

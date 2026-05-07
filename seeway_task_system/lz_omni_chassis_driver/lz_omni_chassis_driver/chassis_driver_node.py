@@ -53,6 +53,11 @@ class ChassisDriverNode(Node):
                 f'feedback_publish_rate_hz={self._feedback_publish_rate_hz} is invalid; using 10.0 Hz'
             )
             self._feedback_publish_rate_hz = 10.0
+        elif self._feedback_publish_rate_hz > 100.0:
+            self.get_logger().warning(
+                f'feedback_publish_rate_hz={self._feedback_publish_rate_hz} is too high; capping at 100.0 Hz'
+            )
+            self._feedback_publish_rate_hz = 100.0
         self._motor_control_topic = str(self.get_parameter('motor_control_topic').value)
         self._query_version_on_start = bool(self.get_parameter('query_version_on_start').value)
 
@@ -148,7 +153,9 @@ class ChassisDriverNode(Node):
         if self._driver is None:
             return
         if len(msg.data) != 4:
-            self.get_logger().error(f'Expected 4 motor speeds, got {len(msg.data)}')
+            self.get_logger().error(
+                f'Expected 4 motor speeds on {self._motor_control_topic}, got {len(msg.data)}'
+            )
             return
         self._driver.send_motor_control(int(msg.data[0]), int(msg.data[1]), int(msg.data[2]), int(msg.data[3]))
 
