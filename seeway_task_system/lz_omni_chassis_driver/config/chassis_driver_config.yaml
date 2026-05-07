@@ -27,3 +27,12 @@ chassis_driver_node:
 
     # Control loop update rate (Hz).  The chassis supports at least 50 Hz.
     publish_rate_hz: 50.0
+
+    # Query firmware version after startup.
+    query_version_on_start: true
+
+    # Feedback republish timer for parsed RX telemetry.
+    feedback_publish_rate_hz: 10.0
+
+    # Topic receiving Int32MultiArray wheel RPM commands [m1,m2,m3,m4].
+    motor_control_topic: "/motor_speeds"
