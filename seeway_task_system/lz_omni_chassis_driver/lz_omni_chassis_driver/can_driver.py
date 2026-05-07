@@ -219,7 +219,10 @@ class CanDriver:
                     'aux': 8,
                     'version': 4,
                 }
-                data_len = expected_lengths[rx_type]
+                data_len = expected_lengths.get(rx_type)
+                if data_len is None:
+                    self._logger.error(f'CAN RX unsupported type={rx_type}')
+                    continue
                 payload = data_bytes[1:1 + data_len]
                 self._dispatch(rx_type, payload)
             except Exception as exc:

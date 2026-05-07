@@ -60,6 +60,10 @@ class ChassisDriverNode(Node):
         self._latest_chassis: Optional[ChassisStatus] = None
         self._latest_aux: Optional[AuxInfo] = None
         self._latest_version: Optional[VersionInfo] = None
+        self._latest_battery_stamp = None
+        self._latest_chassis_stamp = None
+        self._latest_aux_stamp = None
+        self._latest_version_stamp = None
 
         self._driver = None
         self._init_driver()
@@ -174,22 +178,22 @@ class ChassisDriverNode(Node):
 
     def _on_battery_info(self, info: BatteryInfo) -> None:
         """Store latest battery feedback from hardware callback thread."""
-        _ = self.get_clock().now()
+        self._latest_battery_stamp = self.get_clock().now().to_msg()
         self._latest_battery = info
 
     def _on_chassis_status(self, info: ChassisStatus) -> None:
         """Store latest chassis-state feedback from hardware callback thread."""
-        _ = self.get_clock().now()
+        self._latest_chassis_stamp = self.get_clock().now().to_msg()
         self._latest_chassis = info
 
     def _on_aux_info(self, info: AuxInfo) -> None:
         """Store latest auxiliary feedback from hardware callback thread."""
-        _ = self.get_clock().now()
+        self._latest_aux_stamp = self.get_clock().now().to_msg()
         self._latest_aux = info
 
     def _on_version_info(self, info: VersionInfo) -> None:
         """Store latest firmware-version response from hardware callback thread."""
-        _ = self.get_clock().now()
+        self._latest_version_stamp = self.get_clock().now().to_msg()
         self._latest_version = info
 
     def _publish_feedback(self) -> None:
@@ -198,7 +202,7 @@ class ChassisDriverNode(Node):
 
         if self._latest_battery is not None:
             battery_msg = BatteryState()
-            battery_msg.header.stamp = now
+            battery_msg.header.stamp = self._latest_battery_stamp or now
             battery_msg.voltage = float(self._latest_battery.voltage_v)
             battery_msg.current = float(self._latest_battery.current_a)
             battery_msg.percentage = float(self._latest_battery.soc_percent) / 100.0
@@ -207,7 +211,7 @@ class ChassisDriverNode(Node):
 
         if self._latest_chassis is not None:
             vel_msg = TwistStamped()
-            vel_msg.header.stamp = now
+            vel_msg.header.stamp = self._latest_chassis_stamp or now
             vel_msg.twist.linear.x = self._latest_chassis.vx_ms
             vel_msg.twist.linear.y = self._latest_chassis.vy_ms
             vel_msg.twist.angular.z = self._latest_chassis.vw_rads
