@@ -1,7 +1,7 @@
 """Protocol definitions and frame parsing for the LZ_OMNI chassis."""
 
-from dataclasses import dataclass
 import struct
+from dataclasses import dataclass
 from typing import Generator, Optional, Tuple
 
 FRAME_HEADER0 = 0x0A

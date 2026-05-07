@@ -15,6 +15,9 @@ from .can_driver import CanDriver
 from .protocol import AuxInfo, BatteryInfo, ChassisStatus, VersionInfo
 from .uart_driver import UartDriver
 
+MAX_FEEDBACK_RATE_HZ = 100.0
+SOC_PERCENT_SCALE = 100.0
+
 
 class ChassisDriverNode(Node):
     """ROS2 chassis driver node supporting motion control and telemetry feedback."""
@@ -53,11 +56,12 @@ class ChassisDriverNode(Node):
                 f'feedback_publish_rate_hz={self._feedback_publish_rate_hz} is invalid; using 10.0 Hz'
             )
             self._feedback_publish_rate_hz = 10.0
-        elif self._feedback_publish_rate_hz > 100.0:
+        elif self._feedback_publish_rate_hz > MAX_FEEDBACK_RATE_HZ:
             self.get_logger().warning(
-                f'feedback_publish_rate_hz={self._feedback_publish_rate_hz} is too high; capping at 100.0 Hz'
+                f'feedback_publish_rate_hz={self._feedback_publish_rate_hz} is too high; '
+                f'capping at {MAX_FEEDBACK_RATE_HZ:.1f} Hz'
             )
-            self._feedback_publish_rate_hz = 100.0
+            self._feedback_publish_rate_hz = MAX_FEEDBACK_RATE_HZ
         self._motor_control_topic = str(self.get_parameter('motor_control_topic').value)
         self._query_version_on_start = bool(self.get_parameter('query_version_on_start').value)
 
@@ -217,7 +221,10 @@ class ChassisDriverNode(Node):
             battery_msg.header.stamp = self._latest_battery_stamp or now
             battery_msg.voltage = float(self._latest_battery.voltage_v)
             battery_msg.current = float(self._latest_battery.current_a)
-            battery_msg.percentage = max(0.0, min(1.0, float(self._latest_battery.soc_percent) / 100.0))
+            battery_msg.percentage = max(
+                0.0,
+                min(1.0, float(self._latest_battery.soc_percent) / SOC_PERCENT_SCALE),
+            )
             battery_msg.present = True
             battery_msg.power_supply_status = int(self._latest_battery.status)
             self._battery_pub.publish(battery_msg)
