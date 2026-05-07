@@ -1,77 +1,46 @@
 #!/usr/bin/env python3
-"""
-UART Driver for LZ_OMNI Omnidirectional Chassis
-Handles serial communication using the chassis protocol.
+"""UART driver for the LZ_OMNI omnidirectional chassis."""
 
-Protocol frame format:
-  [Header0][Header1][DataLength][CMD][Data...][XOR_Check]
-  Header0: 0x0A
-  Header1: 0x0C
-  XOR_Check: XOR of all bytes from DataLength onward (excluding Header0/Header1 and XOR itself)
-
-Motion control command (CMD=0x02):
-  DataLength: 0x06
-  Data: Linear-X (2B, mm/s), Linear-Y (2B, mm/s), Angular-Speed (2B, 0.001 rad/s)
-"""
-
-import struct
+import logging
 import threading
 import time
-import logging
-from typing import Optional
+from typing import Callable, Optional
 
+from .protocol import (
+    AuxInfo,
+    BatteryInfo,
+    ChassisStatus,
+    FrameParser,
+    VersionInfo,
+    build_motor_control_frame,
+    build_omni_control_frame,
+    build_version_query_frame,
+    CMD_AUX_INFO,
+    CMD_BATTERY_INFO,
+    CMD_CHASSIS_STATUS,
+    CMD_VERSION_QUERY,
+    FRAME_HEADER0,
+    FRAME_HEADER1,
+    compute_xor,
+)
 
-FRAME_HEADER0 = 0x0A
-FRAME_HEADER1 = 0x0C
 CMD_MOTION = 0x02
 
 
-def compute_xor(data: bytes) -> int:
-    """Compute XOR checksum over the given bytes."""
-    result = 0
-    for b in data:
-        result ^= b
-    return result
-
-
 def build_motion_frame(linear_x_mms: int, linear_y_mms: int, angular_mrad_s: int) -> bytes:
-    """
-    Build a motion control frame for the chassis.
-
-    Args:
-        linear_x_mms: X-axis speed in mm/s, range -2000..2000
-        linear_y_mms: Y-axis speed in mm/s, range -2000..2000
-        angular_mrad_s: Angular speed in 0.001 rad/s, range -6870..6870
-
-    Returns:
-        Complete protocol frame as bytes.
-    """
-    # Clamp values to protocol limits
-    linear_x_mms = max(-2000, min(2000, linear_x_mms))
-    linear_y_mms = max(-2000, min(2000, linear_y_mms))
-    angular_mrad_s = max(-6870, min(6870, angular_mrad_s))
-
-    data_length = 0x06
-    cmd = CMD_MOTION
-    # Pack three signed 16-bit integers big-endian
-    motion_data = struct.pack('>hhh', linear_x_mms, linear_y_mms, angular_mrad_s)
-
-    # XOR checksum: covers DataLength, CMD, and motion_data bytes
-    checksum_payload = bytes([data_length, cmd]) + motion_data
-    xor_check = compute_xor(checksum_payload)
-
-    frame = bytes([FRAME_HEADER0, FRAME_HEADER1]) + checksum_payload + bytes([xor_check])
-    return frame
+    """Build legacy CMD 0x02 motion frame kept for backward compatibility tests."""
+    vx = max(-2000, min(2000, linear_x_mms))
+    vy = max(-2000, min(2000, linear_y_mms))
+    vw = max(-6870, min(6870, angular_mrad_s))
+    motion_data = int(vx).to_bytes(2, 'big', signed=True)
+    motion_data += int(vy).to_bytes(2, 'big', signed=True)
+    motion_data += int(vw).to_bytes(2, 'big', signed=True)
+    checksum_payload = bytes([0x06, CMD_MOTION]) + motion_data
+    return bytes([FRAME_HEADER0, FRAME_HEADER1]) + checksum_payload + bytes([compute_xor(checksum_payload)])
 
 
 class UartDriver:
-    """
-    Serial (UART) driver for the LZ_OMNI chassis.
-
-    Opens the given serial port and provides a thread-safe method to
-    send motion commands.  Incoming data is read in a background thread
-    and exposed via an optional callback.
-    """
+    """Serial communication driver implementing the LZ_OMNI UART protocol."""
 
     def __init__(
         self,
@@ -79,7 +48,8 @@ class UartDriver:
         baudrate: int = 115200,
         timeout: float = 1.0,
         logger: Optional[logging.Logger] = None,
-    ):
+    ) -> None:
+        """Initialise UART parameters and callbacks."""
         self._port = port
         self._baudrate = baudrate
         self._timeout = timeout
@@ -89,16 +59,18 @@ class UartDriver:
         self._lock = threading.Lock()
         self._running = False
         self._read_thread: Optional[threading.Thread] = None
-        self._rx_callback = None
+        self._parser = FrameParser()
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+        self._battery_info_callback: Optional[Callable[[BatteryInfo], None]] = None
+        self._chassis_status_callback: Optional[Callable[[ChassisStatus], None]] = None
+        self._aux_info_callback: Optional[Callable[[AuxInfo], None]] = None
+        self._version_info_callback: Optional[Callable[[VersionInfo], None]] = None
 
     def open(self) -> bool:
-        """Open the serial port.  Returns True on success."""
+        """Open the serial port and start the read loop thread."""
         try:
-            import serial  # lazy import so the module is loadable without pyserial
+            import serial
+
             self._serial = serial.Serial(
                 port=self._port,
                 baudrate=self._baudrate,
@@ -117,7 +89,7 @@ class UartDriver:
             return False
 
     def close(self) -> None:
-        """Close the serial port and stop the read thread."""
+        """Close the serial port and stop the read loop thread."""
         self._running = False
         if self._read_thread is not None:
             self._read_thread.join(timeout=2.0)
@@ -127,62 +99,96 @@ class UartDriver:
                 self._logger.info('UART closed')
 
     def is_open(self) -> bool:
-        """Return True if the serial port is currently open."""
+        """Return ``True`` when serial link is currently open."""
         return self._serial is not None and self._serial.is_open
 
-    def set_rx_callback(self, callback) -> None:
-        """Register a callable(data: bytes) invoked on each received frame."""
-        self._rx_callback = callback
+    def send_motion(self, linear_x_mms: int, linear_y_mms: int, angular_mrad_s: int) -> bool:
+        """Send CMD 0x40 omnidirectional chassis speed control."""
+        frame = build_omni_control_frame(linear_x_mms, linear_y_mms, angular_mrad_s)
+        return self._send_frame(
+            frame,
+            f'UART TX CMD=0x40 vx={linear_x_mms} vy={linear_y_mms} vw={angular_mrad_s}',
+        )
 
-    def send_motion(
-        self,
-        linear_x_mms: int,
-        linear_y_mms: int,
-        angular_mrad_s: int,
-    ) -> bool:
-        """
-        Send a motion command frame to the chassis.
+    def send_motor_control(self, m1: int, m2: int, m3: int, m4: int) -> bool:
+        """Send CMD 0x01 wheel RPM control command."""
+        frame = build_motor_control_frame(m1, m2, m3, m4)
+        return self._send_frame(frame, f'UART TX CMD=0x01 m=[{m1},{m2},{m3},{m4}]')
 
-        Args:
-            linear_x_mms: X speed in mm/s
-            linear_y_mms: Y speed in mm/s
-            angular_mrad_s: Angular speed in 0.001 rad/s
+    def send_version_query(self) -> bool:
+        """Send CMD 0x11 firmware version query command."""
+        frame = build_version_query_frame()
+        return self._send_frame(frame, 'UART TX CMD=0x11 version query')
 
-        Returns:
-            True if the frame was written successfully.
-        """
+    def set_battery_info_callback(self, callback: Optional[Callable[[BatteryInfo], None]]) -> None:
+        """Register callback for parsed battery telemetry."""
+        self._battery_info_callback = callback
+
+    def set_chassis_status_callback(self, callback: Optional[Callable[[ChassisStatus], None]]) -> None:
+        """Register callback for parsed chassis status telemetry."""
+        self._chassis_status_callback = callback
+
+    def set_aux_info_callback(self, callback: Optional[Callable[[AuxInfo], None]]) -> None:
+        """Register callback for parsed auxiliary telemetry."""
+        self._aux_info_callback = callback
+
+    def set_version_info_callback(self, callback: Optional[Callable[[VersionInfo], None]]) -> None:
+        """Register callback for parsed firmware version responses."""
+        self._version_info_callback = callback
+
+    def _send_frame(self, frame: bytes, debug_message: str) -> bool:
+        """Write raw protocol frame to UART with thread safety and logging."""
         if not self.is_open():
-            self._logger.warning('UART not open – cannot send motion command')
+            self._logger.warning('UART not open – cannot send command')
             return False
-
-        frame = build_motion_frame(linear_x_mms, linear_y_mms, angular_mrad_s)
         try:
             with self._lock:
                 self._serial.write(frame)
-            self._logger.debug(
-                f'UART TX: vx={linear_x_mms} vy={linear_y_mms} w={angular_mrad_s} '
-                f'frame={frame.hex()}'
-            )
+            self._logger.debug(f'{debug_message} frame={frame.hex()}')
             return True
         except Exception as exc:
             self._logger.error(f'UART write error: {exc}')
             return False
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     def _read_loop(self) -> None:
-        """Background thread that reads incoming bytes from the chassis."""
+        """Read incoming bytes, parse framed payloads, and dispatch callbacks."""
         while self._running:
             try:
                 if self._serial and self._serial.is_open and self._serial.in_waiting:
-                    data = self._serial.read(self._serial.in_waiting)
-                    if data and self._rx_callback:
-                        self._rx_callback(data)
+                    raw = self._serial.read(self._serial.in_waiting)
+                    if not raw:
+                        continue
+                    self._logger.debug(f'UART RX raw={raw.hex()}')
+                    for cmd, payload in self._parser.feed(raw):
+                        self._logger.debug(f'UART RX frame cmd=0x{cmd:02X} payload={payload.hex()}')
+                        self._dispatch(cmd, payload)
                 else:
                     time.sleep(0.005)
             except Exception as exc:
                 if self._running:
                     self._logger.error(f'UART read error: {exc}')
                 time.sleep(0.1)
+
+    def _dispatch(self, cmd: int, payload: bytes) -> None:
+        """Parse payload by command ID and invoke matching callback."""
+        try:
+            if cmd == CMD_BATTERY_INFO:
+                battery = BatteryInfo.from_bytes(payload)
+                if self._battery_info_callback:
+                    self._battery_info_callback(battery)
+            elif cmd == CMD_CHASSIS_STATUS:
+                chassis = ChassisStatus.from_bytes(payload)
+                if self._chassis_status_callback:
+                    self._chassis_status_callback(chassis)
+            elif cmd == CMD_AUX_INFO:
+                aux = AuxInfo.from_bytes(payload)
+                if self._aux_info_callback:
+                    self._aux_info_callback(aux)
+            elif cmd == CMD_VERSION_QUERY:
+                version = VersionInfo.from_bytes(payload)
+                if self._version_info_callback:
+                    self._version_info_callback(version)
+            else:
+                self._logger.debug(f'UART RX ignored unknown cmd=0x{cmd:02X}')
+        except Exception as exc:
+            self._logger.error(f'UART RX parse/dispatch error cmd=0x{cmd:02X}: {exc}')
