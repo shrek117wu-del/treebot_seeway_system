@@ -49,7 +49,7 @@ class ChassisDriverNode(Node):
         publish_rate = float(self.get_parameter('publish_rate_hz').value)
         self._feedback_publish_rate_hz = float(self.get_parameter('feedback_publish_rate_hz').value)
         if self._feedback_publish_rate_hz <= 0.0:
-            self.get_logger().warn(
+            self.get_logger().warning(
                 f'feedback_publish_rate_hz={self._feedback_publish_rate_hz} is invalid; using 10.0 Hz'
             )
             self._feedback_publish_rate_hz = 10.0
@@ -158,13 +158,13 @@ class ChassisDriverNode(Node):
             age = (self.get_clock().now() - self._last_cmd_time).nanoseconds / 1e9
             if age > self._cmd_vel_timeout:
                 if self._vx_mms != 0 or self._vy_mms != 0 or self._w_mrad != 0:
-                    self.get_logger().warn(f'/cmd_vel timeout ({age:.2f}s) – sending zero velocity')
+                    self.get_logger().warning(f'/cmd_vel timeout ({age:.2f}s) – sending zero velocity')
                 self._vx_mms = 0
                 self._vy_mms = 0
                 self._w_mrad = 0
 
         if self._driver is not None and not self._driver.is_open():
-            self.get_logger().warn('Driver not open – retrying...')
+            self.get_logger().warning('Driver not open – retrying...')
             self._driver.open()
             return
 
@@ -211,7 +211,8 @@ class ChassisDriverNode(Node):
             battery_msg.voltage = float(self._latest_battery.voltage_v)
             battery_msg.current = float(self._latest_battery.current_a)
             battery_msg.percentage = max(0.0, min(1.0, float(self._latest_battery.soc_percent) / 100.0))
-            battery_msg.present = self._latest_battery.status != 0
+            battery_msg.present = True
+            battery_msg.power_supply_status = int(self._latest_battery.status)
             self._battery_pub.publish(battery_msg)
 
         if self._latest_chassis is not None:

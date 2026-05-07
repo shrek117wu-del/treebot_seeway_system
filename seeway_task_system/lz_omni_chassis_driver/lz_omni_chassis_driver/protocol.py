@@ -16,6 +16,10 @@ CMD_CHASSIS_STATUS = 0x6B
 CMD_AUX_INFO = 0x6F
 
 MAX_BUFFER_SIZE = 256
+HEADER_SIZE = 2
+LENGTH_FIELD_SIZE = 1
+CMD_FIELD_SIZE = 1
+CHECKSUM_SIZE = 1
 
 
 def compute_xor(data: bytes) -> int:
@@ -201,11 +205,18 @@ class FrameParser:
             if header_index > 0:
                 del self._buffer[:header_index]
 
-            if len(self._buffer) < 5:
+            minimum_frame_len = HEADER_SIZE + LENGTH_FIELD_SIZE + CMD_FIELD_SIZE + CHECKSUM_SIZE
+            if len(self._buffer) < minimum_frame_len:
                 return
 
             data_len = self._buffer[2]
-            frame_len = 2 + 1 + 1 + data_len + 1
+            frame_len = (
+                HEADER_SIZE
+                + LENGTH_FIELD_SIZE
+                + CMD_FIELD_SIZE
+                + data_len
+                + CHECKSUM_SIZE
+            )
 
             if frame_len > MAX_BUFFER_SIZE:
                 del self._buffer[0]
