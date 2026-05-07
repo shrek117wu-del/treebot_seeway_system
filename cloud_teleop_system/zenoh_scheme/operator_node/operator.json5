@@ -1,0 +1,28 @@
+/**
+ * Zenoh-DDS Bridge Configuration for the Operator PC
+ * This node connects to the cloud router and bridges the local ROS 2 /teleop_joy topic.
+ */
+{
+  mode: "client",
+  
+  connect: {
+    // Replace with the IP address of your Cloud Server (same as robot.json5)
+    endpoints: ["tcp/YOUR_CLOUD_SERVER_IP:7447"]
+  },
+  
+  plugins: {
+    ros2dds: {
+      allow: {
+        // The operator publishes /teleop_joy to the Cloud; receives robot /system_status
+        publishers: ["/teleop_joy"],
+        subscribers: ["/system_status"]
+      }
+    }
+  },
+
+  routing: {
+    multicast: {
+      enabled: false
+    }
+  }
+}

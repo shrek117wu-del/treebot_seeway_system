@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  zenoh-router:
+    image: eclipse/zenoh:1.0.0
+    container_name: eclipse_zenoh_cloud_router
+    ports:
+      # TCP and UDP ports required for Zenoh routing
+      - "7447:7447/tcp"
+      - "7447:7447/udp"
+      # REST API port for monitoring/admin
+      - "8000:8000/tcp"
+    volumes:
+      - ./router.json5:/etc/zenoh/router.json5:ro
+    command: ["-c", "/etc/zenoh/router.json5"]
+    restart: always
+    network_mode: "host" # High-performance networking

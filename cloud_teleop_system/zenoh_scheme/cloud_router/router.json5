@@ -1,0 +1,29 @@
+/**
+ * Zenoh Cloud Router Configuration
+ * Serves as the high-throughput, low-latency relay between the Operator and the Jetson.
+ */
+{
+  mode: "router",
+  
+  plugins: {
+    // Expose a REST API to inspect traffic and connected peers
+    rest: { 
+      http_port: 8000 
+    }
+  },
+  
+  listen: {
+    // Explicitly bind to standard ports for public WAN traversal
+    endpoints: [
+      "tcp/0.0.0.0:7447",
+      "udp/0.0.0.0:7447"
+    ]
+  },
+  
+  routing: {
+    // Disable multicast discovery in cloud to prevent unnecessary host noise
+    multicast: {
+      enabled: false
+    }
+  }
+}

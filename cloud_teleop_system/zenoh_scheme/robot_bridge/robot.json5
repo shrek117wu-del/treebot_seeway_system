@@ -1,0 +1,29 @@
+/**
+ * Zenoh-DDS Bridge Configuration for the Robot (Jetson Orin NX)
+ * This node connects to the remote cloud router and bridges local DDS messages.
+ */
+{
+  mode: "client",
+  
+  connect: {
+    // Replace with the IP address of your Cloud Server
+    endpoints: ["tcp/YOUR_CLOUD_SERVER_IP:7447"]
+  },
+  
+  plugins: {
+    ros2dds: {
+      // For security and bandwidth saving, strictly allow only required teleoperation topics
+      // The robot subscibes to /teleop_joy coming from the Cloud, and publishes /system_status to the Cloud
+      allow: {
+        publishers: ["/system_status"], // Forward robot health to operator
+        subscribers: ["/teleop_joy"]    // Receive joystick commands from operator
+      }
+    }
+  },
+
+  routing: {
+    multicast: {
+      enabled: false // Disabling to rely solely on the cloud peer
+    }
+  }
+}
