@@ -40,6 +40,7 @@ from .protocol import (
     decode_ascii,
     fault_descriptions,
     mode_name,
+    normalize_mode,
 )
 
 
@@ -277,7 +278,6 @@ class DriverNode(Node):
             elif command_type == 'set_canfd_bitrate':
                 self._driver.send_sdo_write(node_id, IDX_CANFD_DATA_BITRATE, 0, self._parse_int(payload['value']), 4)
             elif command_type == 'set_mode':
-                from .protocol import normalize_mode
                 self._driver.send_sdo_write(node_id, IDX_MODE_OF_OPERATION, 0, normalize_mode(payload['mode']), 1, signed=True)
             elif command_type == 'profile_position':
                 self._driver.send_profile_position(

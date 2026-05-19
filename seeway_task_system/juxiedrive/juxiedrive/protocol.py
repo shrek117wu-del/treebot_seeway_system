@@ -7,7 +7,7 @@ import struct
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-CanFrame = Tuple[int, bytes, bool]
+CanFrame = Tuple[int, bytes, bool]  # (arbitration_id, data, is_fd)
 
 NMT_START_REMOTE_NODE = 0x01
 SYNC_FRAME_ID = 0x080
@@ -82,7 +82,14 @@ MODE_NAME_MAP: Dict[str, int] = {
     'current_loop': CANOPEN_MODE_CURRENT,
     'mit': CANOPEN_MODE_MIT,
 }
-MODE_CODE_MAP = {value: key for key, value in MODE_NAME_MAP.items() if len(key) > 2}
+MODE_CODE_MAP: Dict[int, str] = {
+    CANOPEN_MODE_PP: 'profile_position',
+    CANOPEN_MODE_PV: 'profile_velocity',
+    CANOPEN_MODE_CSP: 'csp',
+    CANOPEN_MODE_CSV: 'csv',
+    CANOPEN_MODE_CURRENT: 'current',
+    CANOPEN_MODE_MIT: 'mit',
+}
 ERROR_FLAGS: Dict[int, str] = {
     0x0001: 'over_voltage',
     0x0002: 'under_voltage',

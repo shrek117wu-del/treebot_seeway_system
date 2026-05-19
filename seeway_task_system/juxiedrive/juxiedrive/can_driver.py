@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
 import logging
-import inspect
 import time
 import threading
 from typing import Callable, Optional, Sequence
@@ -73,8 +73,7 @@ class CanDriver:
                 'bustype': 'socketcan',
                 'bitrate': self._bitrate,
             }
-            bus_signature = inspect.signature(can.interface.Bus)
-            if 'fd' in bus_signature.parameters:
+            if self._python_can_supports_fd():
                 bus_kwargs['fd'] = True
             self._bus = can.interface.Bus(**bus_kwargs)
             self._running = True
@@ -84,6 +83,14 @@ class CanDriver:
             return True
         except Exception as exc:
             self._logger.error(f'Failed to open CAN bus {self._channel}: {exc}')
+            return False
+
+    def _python_can_supports_fd(self) -> bool:
+        """Return whether the installed python-can version supports the ``fd`` kwarg."""
+        try:
+            major, minor, *_ = version('python-can').split('.')
+            return (int(major), int(minor)) >= (4, 0)
+        except (PackageNotFoundError, ValueError):
             return False
 
     def close(self) -> None:
