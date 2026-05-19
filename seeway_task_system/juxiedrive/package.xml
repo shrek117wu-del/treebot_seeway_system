@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>juxiedrive</name>
+  <version>0.1.0</version>
+  <description>
+    ROS2 CAN/CAN FD driver for JuxieDrive integrated joint actuators.
+    Supports documented CANopen SDO/NMT/SYNC commands, custom single-axis and
+    multi-axis CAN FD PDO commands, MIT-mode control, and feedback parsing.
+  </description>
+  <maintainer email="shrek117wu@gmail.com">Seeway Development Team</maintainer>
+  <license>Apache License 2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <build_depend>rclpy</build_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>diagnostic_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <!-- python-can is required for CAN/CAN FD access -->
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

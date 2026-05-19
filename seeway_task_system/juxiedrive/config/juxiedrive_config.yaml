@@ -1,0 +1,16 @@
+driver_node:
+  ros__parameters:
+    can_channel: "can0"
+    can_bitrate: 1000000
+    default_node_id: 1
+    joint_name: "juxie_joint"
+    command_topic: "/juxiedrive/command"
+    response_topic: "/juxiedrive/response"
+    heartbeat_topic: "/juxiedrive/heartbeat"
+    custom_feedback_topic: "/juxiedrive/custom_feedback"
+    tpdo_feedback_topic: "/juxiedrive/tpdo_feedback"
+    joint_state_topic: "/juxiedrive/joint_state"
+    diagnostics_topic: "/juxiedrive/diagnostics"
+    query_version_on_start: true
+    auto_start_node: true
+    feedback_publish_rate_hz: 20.0
