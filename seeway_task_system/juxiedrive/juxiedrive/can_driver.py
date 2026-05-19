@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-from importlib.metadata import PackageNotFoundError, version
 import logging
-import time
 import threading
+import time
+from importlib.metadata import PackageNotFoundError, version
 from typing import Callable, Optional, Sequence
 
 from .protocol import (
