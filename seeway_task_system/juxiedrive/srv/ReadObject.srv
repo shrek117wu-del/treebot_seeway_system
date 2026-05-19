@@ -1,0 +1,10 @@
+string joint_name
+uint16 index
+uint8 subindex
+---
+bool success
+string message
+uint8[] raw_data
+int64 signed_value
+uint64 unsigned_value
+string ascii_value

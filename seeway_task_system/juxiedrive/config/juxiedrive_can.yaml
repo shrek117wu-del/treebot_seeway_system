@@ -1,0 +1,11 @@
+juxiedrive_node:
+  ros__parameters:
+    can_channel: "can0"
+    can_bitrate: 1000000
+    can_data_bitrate: 5000000
+    fd_enabled: true
+    feedback_rate_hz: 20.0
+    offline_timeout_sec: 1.0
+    auto_start_node: true
+    auto_sync_feedback: true
+    joints_config: ""

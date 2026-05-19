@@ -1,0 +1,7 @@
+string joint_name
+string command
+string arguments_json
+---
+bool success
+string message
+string response_json

@@ -1,0 +1,21 @@
+uint8 MODE_PROFILE_POSITION=1
+uint8 MODE_PROFILE_VELOCITY=2
+uint8 MODE_CSP=3
+uint8 MODE_CSV=4
+uint8 MODE_CURRENT=5
+uint8 MODE_MIT=6
+
+builtin_interfaces/Time stamp
+string joint_name
+uint8 control_mode
+bool enable
+bool release_brake
+bool clear_error
+float64 target_position_deg
+float64 target_velocity_rpm
+float64 target_current_ma
+float64 profile_acceleration_rpm_s
+float64 feedforward
+float64 kp
+float64 kd
+float64 target_torque_nm

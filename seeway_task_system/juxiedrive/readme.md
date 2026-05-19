@@ -1,372 +1,103 @@
-总体目标
-参考 seeway_task_system/lz_omni_chassis_driver 的组织方式，为 巨蟹智能关节模组 CAN 总线设备 新建一个独立 ROS2 驱动包 seeway_task_system/juxiedrive，实现 PDF 文档里定义的全部指令，并提供：
+# JuxieDrive ROS2 CAN driver
 
-ROS2 节点
-CAN 通信层
-协议编解码层
-配置文件
-launch 文件
-示例程序
-基本测试代码
-README/使用说明
-设计原则
-1. 结构上复用 lz_omni_chassis_driver 的思路
-我会沿用它的分层方式，但针对关节模组场景做增强：
+`seeway_task_system/juxiedrive` implements a ROS2 Python driver for the JuxieDrive integrated joint modules described in:
 
-node 层：ROS2 topic / service / action 接口
-driver 层：CAN 收发
-protocol 层：巨蟹关节协议编解码
-model 层：状态结构体、错误码、反馈帧解析
-config 层：CAN ID、设备数量、限位、速度/电流/模式参数
-2. 不把所有协议都塞进一个文件
-关节协议通常命令多、反馈多、状态机多。若全部写进一个 can_driver.py，后续很难维护。
+- `关节模组使用协议简易说明书.pdf`
+- `巨蟹智能产品选型手册V2.0.3压缩版(3).pdf`
 
-所以我建议拆成：
+The package follows the same layered structure as `seeway_task_system/lz_omni_chassis_driver`:
 
-protocol.py：命令编码/反馈解析
-can_driver.py：底层 SocketCAN
-joint_device.py：单关节抽象
-juxiedrive_node.py：ROS2 节点
-messages/services：必要时增加自定义接口
-3. 支持“单关节”和“多关节”
-文档是“关节模组协议”，实际部署很可能不止一个节点，因此驱动设计要支持：
+- `juxiedrive/protocol.py` — documented CANopen/CAN-FD frame builders and parsers
+- `juxiedrive/can_driver.py` — SocketCAN transport
+- `juxiedrive/joint_device.py` — single-joint abstraction and synchronous SDO helpers
+- `juxiedrive/juxiedrive_node.py` — ROS2 topics/services/diagnostics bridge
+- `config/*.yaml`, `launch/*.py`, `examples/*.py`, `test/*.py`
 
-单电机单 ID
-多关节多 ID
-广播 / 定向查询
-周期轮询状态
-建议的目录结构
-Text
-seeway_task_system/juxiedrive/
-├── package.xml
-├── CMakeLists.txt
-├── setup.py
-├── resource/
-│   └── juxiedrive
-├── config/
-│   ├── juxiedrive_can.yaml
-│   └── joints.yaml
-├── launch/
-│   ├── juxiedrive.launch.py
-│   └── single_joint_debug.launch.py
-├── examples/
-│   ├── enable_joint_example.py
-│   ├── move_joint_example.py
-│   ├── read_state_example.py
-│   └── homing_example.py
-├── test/
-│   ├── test_protocol.py
-│   └── test_state_parser.py
-└── juxiedrive/
-    ├── __init__.py
-    ├── can_driver.py
-    ├── protocol.py
-    ├── joint_device.py
-    ├── juxiedrive_node.py
-    ├── state_types.py
-    └── utils.py
-ROS2 接口方案
-因为你要求“完成文档中提到的所有指令”，不能只做一个 /cmd_vel 式接口。关节驱动更适合拆成 topic + service。
+## Documented commands covered
 
-A. Topic
-1. 订阅目标命令
-/juxiedrive/<joint_name>/command
-类型建议：
-若只做位置/速度/力矩控制，可用自定义消息
-或兼容 sensor_msgs/JointState / trajectory_msgs/JointTrajectoryPoint
-我更建议自定义消息，便于覆盖协议全部能力。
+### CANopen / SDO commands
 
-建议字段：
+- Version information reads (`0x1008`, `0x1000`, `0x100A`, `0x1009`)
+- Joint ID write (`0x2530`)
+- Zero calibration (`0x2531`)
+- Position read (`0x6064`)
+- Disable watchdog / limit protection (`0x2650`)
+- Heartbeat configuration (`0x1017`)
+- Positive / negative limit write and read (`0x607D`)
+- CAN-FD data bitrate write (`0x2540`)
+- Profile-position control sequence (`0x6040`, `0x6060`, `0x6083`, `0x6084`, `0x6081`, `0x607A`)
+- Profile-velocity control sequence (`0x6060`, `0x6083`, `0x6084`, `0x60FF`)
+- Current-mode control sequence (`0x6060`, `0x6071`)
+- PI parameter write / read (`0x2532` .. `0x2538`)
+- State reads (`0x6078`, `0x6064`, `0x606C`, `0x603F`, `0x6041`, `0x2662`, `0x2663`)
 
-control_mode
-target_position
-target_velocity
-target_torque
-target_current
-kp
-kd
-enable
-timeout_ms
-2. 发布关节状态
-/juxiedrive/<joint_name>/state
-内容：
-position
-velocity
-torque/current
-temperature
-voltage
-error_code
-enabled
-mode
-online
-3. 聚合状态
-/joint_states
-标准 sensor_msgs/JointState
-便于 RViz / robot_state_publisher / MoveIt 对接
-4. 诊断信息
-/juxiedrive/diagnostics
-发布：
-通信超时
-CAN 错帧
-设备离线
-过温/过流/故障码
-B. Service
-文档里“所有指令”通常包含大量查询和配置类命令，这类不适合 topic，建议用 service。
+### Custom CAN-FD commands
 
-建议提供：
+- Single-joint custom PDO control (`0x100 + node_id`)
+- Multi-joint broadcast control (`0x200`)
+- MIT control (`0x110 + node_id`)
+- SYNC trigger (`0x080`)
+- Custom feedback parser (`0x300 + node_id`)
+- Boot-up / heartbeat parser (`0x700 + node_id`)
 
-/juxiedrive/enable_joint
-/juxiedrive/disable_joint
-/juxiedrive/clear_fault
-/juxiedrive/set_mode
-/juxiedrive/set_id
-/juxiedrive/read_parameter
-/juxiedrive/write_parameter
-/juxiedrive/query_version
-/juxiedrive/query_status
-/juxiedrive/homing
-/juxiedrive/save_config
-/juxiedrive/reboot
-如果 PDF 协议包含：
+## ROS2 interfaces
 
-零点设置
-绝对/相对位置控制
-速度模式
-电流模式
-编码器读取
-温度/电压/错误码读取
-恢复默认参数
-固件信息查询
-我会一一映射到 service 或内部轮询逻辑。
+### Topic
 
-节点内部架构
-1. can_driver.py
-负责：
+- Subscribed: `/juxiedrive/command` (`juxiedrive/msg/JointCommand`)
+- Published: `/juxiedrive/status` (`juxiedrive/msg/JointStatus`)
+- Published: `/joint_states` (`sensor_msgs/msg/JointState`)
+- Published: `/juxiedrive/diagnostics` (`diagnostic_msgs/msg/DiagnosticArray`)
 
-打开 SocketCAN 接口
-发送标准帧
-接收原始帧
-后台读线程 / asyncio 接收
-回调分发给协议解析层
-接口大概会是：
+### Services
 
-Python
-open()
-close()
-send(arbitration_id: int, data: bytes)
-register_rx_callback(callback)
-is_open()
-2. protocol.py
-负责：
+- `/juxiedrive/execute_command` (`juxiedrive/srv/ExecuteCommand`)
+- `/juxiedrive/read_object` (`juxiedrive/srv/ReadObject`)
+- `/juxiedrive/write_object` (`juxiedrive/srv/WriteObject`)
 
-所有命令码常量
-打包请求帧
-解析响应帧
-错误码定义
-缩放系数、字节序、符号位处理
-会有类似：
+`ExecuteCommand` supports high-level commands such as:
 
-Python
-build_enable_cmd(node_id)
-build_disable_cmd(node_id)
-build_position_cmd(node_id, pos, vel, kp, kd, torque_ff)
-build_velocity_cmd(node_id, vel)
-build_current_cmd(node_id, current)
-build_query_version_cmd(node_id)
-build_query_status_cmd(node_id)
-parse_feedback_frame(frame)
-parse_error_code(code)
-这个文件是关键。
-我会根据 PDF 把每条命令的数据位定义落成代码，而不是只做几条示例。
+- `start_node`
+- `sync_feedback`
+- `enable`
+- `set_zero`
+- `disable_watchdog`
+- `set_id`
+- `set_heartbeat`
+- `set_positive_limit`
+- `set_negative_limit`
+- `read_positive_limit`
+- `read_negative_limit`
+- `set_canfd_bitrate`
+- `set_pi`
+- `read_pi`
+- `query_versions`
+- `query_state`
+- `profile_position`
+- `profile_velocity`
+- `current_mode`
+- `single_pdo`
+- `mit`
+- `broadcast`
 
-3. joint_device.py
-单设备对象，封装一个关节的状态与方法：
+## Build and run
 
-Python
-class JointDevice:
-    joint_name
-    node_id
-    latest_state
-    last_rx_time
-    online
-    mode
+```bash
+cd ~/colcon_ws/src/treebot_seeway_system/seeway_task_system
+colcon build --packages-select juxiedrive
+source install/setup.bash
+ros2 launch juxiedrive juxiedrive.launch.py
+```
 
-    enable()
-    disable()
-    set_mode()
-    send_position()
-    send_velocity()
-    send_current()
-    query_status()
-    query_version()
-    clear_fault()
-这样未来多关节扩展就简单很多。
+## Examples
 
-4. juxiedrive_node.py
-ROS2 主节点，负责：
+```bash
+python3 examples/frame_preview_example.py
+python3 examples/control_sequence_example.py
+```
 
-加载 joints.yaml
-创建多个 JointDevice
-建立 topic/service
-定时轮询状态
-发布 /joint_states
-处理超时和故障诊断
-配置文件方案
-config/juxiedrive_can.yaml
-定义总线参数：
+## Tests
 
-YAML
-juxiedrive_node:
-  ros__parameters:
-    can_channel: can0
-    can_bitrate: 1000000
-    poll_rate_hz: 50.0
-    status_timeout_sec: 0.5
-    diagnostics_rate_hz: 2.0
-    auto_enable_on_start: false
-config/joints.yaml
-定义关节表：
-
-YAML
-joints:
-  - name: joint1
-    node_id: 1
-    reduction_ratio: 100.0
-    direction: 1
-    zero_offset: 0.0
-    min_position: -3.14
-    max_position: 3.14
-
-  - name: joint2
-    node_id: 2
-    reduction_ratio: 100.0
-    direction: -1
-    zero_offset: 0.0
-    min_position: -1.57
-    max_position: 1.57
-“完成所有指令”的实现策略
-因为你强调的是 PDF 文档中的所有指令，所以不会只做运动控制。我会按下面 4 类实现：
-
-第一类：控制类
-通常包括：
-
-使能
-去使能
-位置控制
-速度控制
-电流/力矩控制
-急停
-清故障
-回零/零点设置
-第二类：查询类
-通常包括：
-
-固件版本
-设备 ID
-编码器值
-当前状态
-温度
-母线电压
-电流
-错误码
-模式
-第三类：参数配置类
-通常包括：
-
-模式切换
-PID 参数
-限位参数
-零偏
-设备 ID 修改
-波特率/保存参数/恢复默认
-第四类：反馈解析类
-通常包括：
-
-周期状态帧
-命令应答帧
-故障帧
-异常码帧
-对现有 lz_omni_chassis_driver 的参考点
-我会重点借鉴它的这些优点：
-
-可复用点
-参数化配置方式
-launch + yaml 启动方式
-driver 层与 node 层解耦
-CAN 驱动基础结构
-示例脚本风格
-需要改进点
-但 lz_omni_chassis_driver 目前更偏“单功能控制”，对于关节模组还不够。我会补充：
-
-更完整的协议编解码
-多设备管理
-查询与应答匹配
-状态缓存
-service 接口
-joint_states 聚合
-更细的错误处理
-代码落地步骤
-第 1 步：协议抽取
-先从 PDF 中整理出：
-
-命令码
-帧格式
-字节序
-单位缩放
-查询/设置差异
-返回帧格式
-错误码
-第 2 步：基础驱动
-实现：
-
-can_driver.py
-protocol.py
-第 3 步：单关节对象
-实现：
-
-joint_device.py
-第 4 步：ROS2 节点
-实现：
-
-juxiedrive_node.py
-topics / services / diagnostics / joint_states
-第 5 步：配置和示例
-实现：
-
-launch/*.py
-config/*.yaml
-examples/*.py
-第 6 步：测试
-实现：
-
-协议编码单测
-状态解析单测
-若文档有示例帧，做回归测试
-交付结果
-最终你会得到：
-
-seeway_task_system/juxiedrive 完整 ROS2 包
-支持文档中所有命令
-可直接通过 CAN 总线控制关节模组
-支持状态查询与故障诊断
-可与上层控制器、MoveIt、任务系统集成
-我建议的最终接口
-如果你希望后续接入机械臂或执行器系统，我建议驱动最终至少暴露：
-
-订阅
-/juxiedrive/<joint>/command
-发布
-/juxiedrive/<joint>/state
-/joint_states
-/juxiedrive/diagnostics
-服务
-/juxiedrive/enable_joint
-/juxiedrive/disable_joint
-/juxiedrive/set_mode
-/juxiedrive/query_version
-/juxiedrive/query_status
-/juxiedrive/clear_fault
-/juxiedrive/homing
-/juxiedrive/read_parameter
-/juxiedrive/write_parameter
-
+```bash
+python3 -m unittest discover test
+```
