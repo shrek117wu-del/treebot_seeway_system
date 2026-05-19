@@ -380,3 +380,5 @@ protocol.py
 can_driver.py
 juxiedrive_node.py
 如果你愿意，我还可以在开始写代码前，先帮你把 PDF 里的“全部指令表”整理成一张结构化清单，这样你可以先确认我对协议的理解是否完全一致。
+https://github.com/shrek117wu-del/treebot_seeway_system seeway_task_system/lz_omni_chassis_driver
+你作为我的资深机器人驱动工程师，请仔细研究seeway_task_system/lz_omni_chassis_driver代码，参考这些代码，然后阅读seeway_task_system/juxiedrive下的文档关节模组使用协议简易说明书.pdf 和 巨蟹智能产品选型手册V2.0.3压缩版(3).pdf，这是另外一个can总线设备，完成文档中提到的所有指令。请先给出方案，再开始编写代码，代码写入seeway_task_system/juxiedrive
