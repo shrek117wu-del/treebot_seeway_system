@@ -36,6 +36,8 @@ from .protocol import (
     build_sdo_read,
     build_sdo_write_i16,
     build_sdo_write_i32,
+    build_sdo_write_u16,
+    build_sdo_write_u32,
     build_sdo_write_u8,
     build_set_canfd_bitrate_command,
     build_set_heartbeat_command,
@@ -181,12 +183,10 @@ class JointDevice:
         elif width == 2 and signed:
             arbitration_id, data, is_fd = build_sdo_write_i16(self.config.node_id, index, subindex, value)
         elif width == 2:
-            from .protocol import build_sdo_write_u16
             arbitration_id, data, is_fd = build_sdo_write_u16(self.config.node_id, index, subindex, value)
         elif width == 4 and signed:
             arbitration_id, data, is_fd = build_sdo_write_i32(self.config.node_id, index, subindex, value)
         elif width == 4:
-            from .protocol import build_sdo_write_u32
             arbitration_id, data, is_fd = build_sdo_write_u32(self.config.node_id, index, subindex, value)
         else:
             raise ValueError('unsupported SDO write width')

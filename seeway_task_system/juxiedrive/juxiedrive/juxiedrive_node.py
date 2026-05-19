@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -207,8 +208,8 @@ class JuxieDriveNode(Node):
             self._status_pub.publish(status_msg)
 
             joint_state.name.append(state.joint_name)
-            joint_state.position.append(state.position_deg * 3.141592653589793 / 180.0)
-            joint_state.velocity.append(state.velocity_rpm * 2.0 * 3.141592653589793 / 60.0)
+            joint_state.position.append(math.radians(state.position_deg))
+            joint_state.velocity.append(state.velocity_rpm * 2.0 * math.pi / 60.0)
             joint_state.effort.append(state.current_ma / 1000.0)
 
             diagnostic = DiagnosticStatus()

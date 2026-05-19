@@ -207,6 +207,7 @@ def clamp(value: float, minimum: float, maximum: float) -> float:
 
 def degrees_to_position_counts(degrees: float) -> int:
     wrapped = max(-180.0, min(180.0, degrees))
+    # The protocol maps one mechanical revolution to 65,536 discrete absolute-position counts.
     counts = int(round(wrapped * POSITION_SCALE_COUNTS_PER_REV / POSITION_DEGREES_PER_REV))
     return max(-32768, min(32767, counts))
 
