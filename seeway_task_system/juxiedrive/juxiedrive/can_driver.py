@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import inspect
 import time
 import threading
 from typing import Callable, Optional, Sequence
@@ -67,19 +68,15 @@ class CanDriver:
         try:
             import can
 
-            try:
-                self._bus = can.interface.Bus(
-                    channel=self._channel,
-                    bustype='socketcan',
-                    bitrate=self._bitrate,
-                    fd=True,
-                )
-            except TypeError:
-                self._bus = can.interface.Bus(
-                    channel=self._channel,
-                    bustype='socketcan',
-                    bitrate=self._bitrate,
-                )
+            bus_kwargs = {
+                'channel': self._channel,
+                'bustype': 'socketcan',
+                'bitrate': self._bitrate,
+            }
+            bus_signature = inspect.signature(can.interface.Bus)
+            if 'fd' in bus_signature.parameters:
+                bus_kwargs['fd'] = True
+            self._bus = can.interface.Bus(**bus_kwargs)
             self._running = True
             self._read_thread = threading.Thread(target=self._read_loop, daemon=True)
             self._read_thread.start()

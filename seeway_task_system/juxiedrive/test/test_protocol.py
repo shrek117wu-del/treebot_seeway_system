@@ -93,6 +93,8 @@ class ProtocolTests(unittest.TestCase):
         self.assertTrue(info.is_bootup)
 
     def test_parse_custom_feedback(self):
+        # Example from the protocol manual: position=0x09E1, velocity=-539 RPM,
+        # current=-175 mA, no fault, temperature=24.0 C, PP mode, enabled.
         feedback = parse_custom_feedback(CUSTOM_FEEDBACK_BASE + 1, bytes.fromhex('09e1fde5ff51000000f001c0'))
         self.assertAlmostEqual(feedback.position_deg, 13.892, delta=0.01)
         self.assertEqual(feedback.velocity_rpm, -539)

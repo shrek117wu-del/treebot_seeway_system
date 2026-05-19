@@ -157,7 +157,17 @@ def decode_ascii(value: bytes) -> str:
 
 @dataclass(frozen=True)
 class SdoResponse:
-    """Decoded SDO response or abort frame."""
+    """Decoded SDO response or abort frame.
+
+    Attributes:
+        node_id: CANopen node identifier derived from ``0x580 + node_id``.
+        command: SDO command specifier byte returned by the actuator.
+        index: 16-bit object-dictionary index referenced by the response.
+        subindex: 8-bit object-dictionary subindex referenced by the response.
+        data: Raw expedited payload bytes in little-endian order.
+        aborted: ``True`` when this frame is an SDO abort response.
+        abort_code: Optional 32-bit abort code when ``aborted`` is true.
+    """
 
     node_id: int
     command: int
@@ -192,7 +202,19 @@ class HeartbeatInfo:
 
 @dataclass(frozen=True)
 class CustomFeedback:
-    """Decoded custom CAN FD actuator feedback from 0x300+node_id."""
+    """Decoded custom CAN FD actuator feedback from ``0x300 + node_id``.
+
+    Attributes:
+        node_id: CAN node identifier for the reporting actuator.
+        position_counts: Signed load-side position counts in the documented
+            ``[-32768, 32767]`` range mapping to ``[-180°, 180°]``.
+        velocity_rpm: Signed motor-side actual speed in RPM.
+        current_ma: Signed q-axis current in milliamps.
+        error_code: Bitmask matching the documented actuator fault table.
+        coil_temperature_c: Winding temperature in degrees Celsius.
+        mode: Current control mode feedback code.
+        status_bits: Packed enable/brake/fault/in-position status flags.
+    """
 
     node_id: int
     position_counts: int
@@ -256,7 +278,21 @@ class Tpdo1Feedback:
 
 @dataclass(frozen=True)
 class MultiAxisCommand:
-    """One slot of the documented 8-axis CAN FD broadcast frame."""
+    """One slot of the documented 8-axis CAN FD broadcast frame.
+
+    Attributes:
+        node_id: Target actuator node ID for this slot.
+        mode: Control mode name or numeric code.
+        target_1: Primary target value. It represents position, speed, or
+            current depending on the selected control mode.
+        target_2: Secondary target value. It represents acceleration/deceleration
+            in profile modes and is otherwise reserved by the manual.
+        feedforward: Optional feed-forward/profile value. In profile-position
+            mode the manual uses it for output-side profile velocity.
+        enable: Whether to set the enable bit in the command header.
+        release_brake: Whether to release the brake in the command header.
+        clear_error: Whether to request fault reset in the command header.
+    """
 
     node_id: int
     mode: int | str

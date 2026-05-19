@@ -36,6 +36,7 @@ from .protocol import (
     MultiAxisCommand,
     SdoResponse,
     Tpdo1Feedback,
+    build_sdo_write_request,
     decode_ascii,
     fault_descriptions,
     mode_name,
@@ -260,9 +261,7 @@ class DriverNode(Node):
             elif command_type == 'enable':
                 self._driver.send_enable_sequence(node_id)
             elif command_type == 'stop':
-                self._send_frames([
-                    (0x600 + node_id, bytes([0x2B, IDX_CONTROLWORD & 0xFF, (IDX_CONTROLWORD >> 8) & 0xFF, 0, 0x0F, 0, 0, 0]), False)
-                ])
+                self._send_frames([build_sdo_write_request(node_id, IDX_CONTROLWORD, 0, 0x000F, 2)])
             elif command_type == 'set_node_id':
                 self._driver.send_sdo_write(node_id, IDX_NODE_ID, 0, self._parse_int(payload['new_node_id']), 4)
             elif command_type == 'set_zero_position':
@@ -385,11 +384,11 @@ class DriverNode(Node):
         except Exception as exc:
             self.get_logger().error(f'Failed to handle command {command_type}: {exc}')
 
-    def destroy_node(self) -> bool:
+    def destroy_node(self) -> None:
         self.get_logger().info('Shutting down JuxieDrive node')
         if self._driver is not None:
             self._driver.close()
-        return super().destroy_node()
+        super().destroy_node()
 
 
 
