@@ -1,0 +1,20 @@
+joints:
+  - name: joint1
+    node_id: 1
+    model: r58_101
+    can_protocol: canfd
+    min_position_deg: -180.0
+    max_position_deg: 180.0
+    mit_position_limit_deg: 180.0
+    mit_velocity_limit_rpm: 3030.0
+    mit_torque_limit_nm: 45.0
+
+  - name: joint2
+    node_id: 2
+    model: r68_101
+    can_protocol: canfd
+    min_position_deg: -180.0
+    max_position_deg: 180.0
+    mit_position_limit_deg: 180.0
+    mit_velocity_limit_rpm: 3030.0
+    mit_torque_limit_nm: 82.0
