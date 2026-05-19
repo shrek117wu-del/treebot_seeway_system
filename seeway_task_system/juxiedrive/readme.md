@@ -1,6 +1,6 @@
 # JuxieDrive ROS2 Driver Plan and Usage
 
-本目录现在同时包含原始 PDF 文档和一个新的 ROS2 Python 驱动包 `juxiedrive`，实现时复用了 `lz_omni_chassis_driver` 的组织方式：
+本目录现在同时保留原始 PDF 文档（同目录下两个 `.pdf` 文件）和一个新的 ROS2 Python 驱动包 `juxiedrive`，实现时复用了 `lz_omni_chassis_driver` 的组织方式：
 
 - `protocol.py`：协议常量、帧构造、反馈解析
 - `can_driver.py`：SocketCAN / CAN FD 收发线程

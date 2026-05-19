@@ -108,7 +108,7 @@ ERROR_FLAGS: Dict[int, str] = {
 
 
 def clamp(value: int, minimum: int, maximum: int) -> int:
-    """Clamp an integer into the inclusive range."""
+    """Clamp ``value`` to the inclusive range ``[minimum, maximum]``."""
     return max(minimum, min(maximum, value))
 
 
@@ -539,7 +539,7 @@ def build_custom_multi_command(commands: Sequence[MultiAxisCommand]) -> CanFrame
 def _scale_to_uint(value: float, minimum: float, maximum: float, bits: int) -> int:
     span = maximum - minimum
     if span <= 0:
-        raise ValueError('invalid scale range')
+        raise ValueError('Scale range is invalid: maximum must be greater than minimum')
     limit = (1 << bits) - 1
     ratio = (value - minimum) / span
     ratio = max(0.0, min(1.0, ratio))

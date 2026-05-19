@@ -108,6 +108,7 @@ class DriverNode(Node):
         self.get_logger().info('JuxieDrive driver node started')
 
     def _parse_int(self, value: Any, default: int = 0) -> int:
+        """Parse JSON command values as integers, supporting base-0 strings."""
         if value is None:
             return default
         if isinstance(value, str):
@@ -380,7 +381,10 @@ class DriverNode(Node):
                     clear_error=bool(payload.get('clear_error', False)),
                 )
             else:
-                self.get_logger().error(f'Unsupported command type: {command_type}')
+                self.get_logger().error(
+                    f'Unsupported command type: {command_type}. '
+                    'See seeway_task_system/juxiedrive/readme.md for valid command types.'
+                )
         except Exception as exc:
             self.get_logger().error(f'Failed to handle command {command_type}: {exc}')
 

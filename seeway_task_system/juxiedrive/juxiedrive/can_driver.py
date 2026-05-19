@@ -41,6 +41,8 @@ from .protocol import (
     parse_tpdo1_feedback,
 )
 
+MIN_PYTHON_CAN_VERSION_FOR_FD = (4, 0)
+
 
 class CanDriver:
     """SocketCAN driver that sends and parses CANopen/CAN FD frames."""
@@ -89,7 +91,7 @@ class CanDriver:
         """Return whether the installed python-can version supports the ``fd`` kwarg."""
         try:
             major, minor, *_ = version('python-can').split('.')
-            return (int(major), int(minor)) >= (4, 0)
+            return (int(major), int(minor)) >= MIN_PYTHON_CAN_VERSION_FOR_FD
         except (PackageNotFoundError, ValueError):
             return False
 
